@@ -205,6 +205,13 @@ h2.sec{font-size:26px;margin:22px 0 8px;font-weight:700}
     </div>
     <p class="summary" id="mSummary"></p>
     <button class="primary" id="mExport">Create Excel timesheet</button>
+    <div class="panel hidden" id="xPanel" style="margin-top:10px;border:2px solid var(--done)">
+      <p class="q" id="xTitle" style="overflow-wrap:anywhere">Your timesheet is ready</p>
+      <p class="sub" id="xNote"></p>
+      <button class="primary" id="xShare" style="margin-top:12px">Share or save to Files</button>
+      <a class="secondary" id="xDownload" style="display:flex;align-items:center;justify-content:center;text-decoration:none;color:var(--ink)">Download file</a>
+      <p class="hint" id="xHint">On iPhone, use “Share or save to Files”, then “Save to Files” or WhatsApp.</p>
+    </div>
     <button class="secondary" id="rOpen" aria-expanded="false">Set several days at once</button>
     <div class="panel hidden" id="rPanel" style="margin-top:10px">
       <p class="q">Set several days</p>
@@ -420,7 +427,7 @@ let mY,mM;
 function monthDays(){const n=dim(mY,mM),a=[];for(let i=1;i<=n;i++)a.push(mY+"-"+pad(mM+1)+"-"+pad(i));return a}
 function renderMonth(){
   if(mY===undefined){const d=parse(cur);mY=d.getFullYear();mM=d.getMonth()}
-  $("rPanel").classList.add("hidden");$("rOpen").setAttribute("aria-expanded","false");
+  $("rPanel").classList.add("hidden");$("rOpen").setAttribute("aria-expanded","false");$("xPanel").classList.add("hidden");
   $("mTitle").textContent=MONTHS[mM]+" "+mY;
   const days=monthDays(),t=todayIso(),list=$("mDays");list.innerHTML="";
   let logged=0,missingPast=0;
@@ -475,15 +482,31 @@ $("mFill").onclick=()=>{
   if(!n){toast("No earlier day to copy from. Log the first day manually.");return}
   persist();renderMonth();toast(`Filled ${n} day${n>1?"s":""}. Check them below.`);
 };
-$("mExport").onclick=async()=>{
+/* export: build first, then a fresh tap shares (iPhone needs the tap to go straight to share) */
+let xFile=null,xUrl=null;
+$("mExport").onclick=()=>{
   const days=monthDays(),missing=days.filter(s=>!db.entries[s]);
-  if(missing.length&&!confirm(`${missing.length} day${missing.length>1?"s are":" is"} not logged and will be left empty on the sheet. Create it anyway?`))return;
   try{
     const blob=buildXlsx(days);
     const nm=db.profile.name.normalize("NFD").replace(/[̀-ͯ]/g,"").trim().split(/\s+/).map(w=>w[0].toUpperCase()+w.slice(1).toLowerCase()).join("_");
     const fname=`Timesheet_${nm}_${MONTHS[mM].slice(0,3).toUpperCase()}-${mY}.xlsx`;
-    await deliver(blob,fname,"Timesheet "+MONTHS[mM]+" "+mY);
+    xFile=new File([blob],fname,{type:blob.type});
+    if(xUrl)URL.revokeObjectURL(xUrl);xUrl=URL.createObjectURL(blob);
+    const dl=$("xDownload");dl.href=xUrl;dl.download=fname;
+    const canShare=!!(navigator.canShare&&navigator.canShare({files:[xFile]}));
+    $("xShare").classList.toggle("hidden",!canShare);$("xHint").classList.toggle("hidden",!canShare);
+    dl.classList.toggle("primary",!canShare);dl.classList.toggle("secondary",canShare);
+    dl.style.color=canShare?"var(--ink)":"var(--hivis-ink)";
+    $("xTitle").textContent=`${fname} is ready`;
+    $("xNote").textContent=missing.length?`${missing.length} day${missing.length>1?"s are":" is"} not logged yet and will be empty on the sheet.`:`All ${days.length} days are logged.`;
+    $("xPanel").classList.remove("hidden");
+    $("xPanel").scrollIntoView({behavior:"smooth",block:"center"});
   }catch(e){console.error(e);toast("Could not create the file: "+e.message)}
+};
+$("xShare").onclick=async()=>{
+  if(!xFile)return;
+  try{await navigator.share({files:[xFile]})}
+  catch(e){if(e.name!=="AbortError")toast("Sharing failed ("+e.name+"). Try “Download file”.")}
 };
 
 /* ---------- profile ---------- */
